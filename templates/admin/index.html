@@ -1,0 +1,75 @@
+{% extends "admin/index.html" %}
+{% load dashboard_tags %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+
+{% block content %}
+    
+    {% get_dashboard_stats as stats %}
+
+    <div style="margin-top: 2rem;">
+        <h2>Puente de Mando - BI Petroconsultores</h2>
+        
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <div style="flex: 1; padding: 1rem; background-color: #f8f8f8; border: 1px solid #ddd;">
+                <h3 style="margin-top: 0;">Resumen de la Flota</h3>
+                <p><strong>Total de Vehículos:</strong> {{ stats.total_vehiculos }}</p>
+                <p><strong>Órdenes de Trabajo Abiertas:</strong> {{ stats.ordenes_abiertas_totales }}</p>
+            </div>
+            <div style="flex: 1; padding: 1rem; background-color: #f8f8f8; border: 1px solid #ddd;">
+                <h3 style="margin-top: 0;">Actividad de Este Mes</h3>
+                <p><strong>Órdenes Completadas:</strong> {{ stats.ordenes_cerradas_este_mes }}</p>
+                <p><strong>Mttos. Preventivos:</strong> {{ stats.preventivos_este_mes }}</p>
+                <p><strong>Mttos. Correctivos:</strong> {{ stats.correctivos_este_mes }}</p>
+            </div>
+        </div>
+
+        <div style="margin-top: 2rem; padding: 1rem; background-color: #f8f8f8; border: 1px solid #ddd;">
+            <h3 style="margin-top: 0;">Costos Totales por Categoría de Mantenimiento</h3>
+            <canvas id="costosChart" width="400" height="150"></canvas>
+        </div>
+
+    </div>
+    
+    <hr style="margin: 2rem 0;">
+
+    {{ block.super }}
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('costosChart').getContext('2d');
+            
+            // Tomamos los datos que pasamos desde Python
+            const chartLabels = JSON.parse('{{ stats.chart_labels|safe }}');
+            const chartData = JSON.parse('{{ stats.chart_data|safe }}');
+
+            const costosChart = new Chart(ctx, {
+                type: 'bar', // Tipo de gráfico: barras
+                data: {
+                    labels: chartLabels,
+                    datasets: [{
+                        label: 'Costo Total ($)',
+                        data: chartData,
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: true
+                }
+            });
+        });
+    </script>
+
+{% endblock %}
