@@ -11,9 +11,9 @@ env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-key-placeholder')
-DEBUG = env.bool('DEBUG', default=False)  # Cambiado a False por defecto para producción
+DEBUG = env.bool('DEBUG', default=False)  
 
-ALLOWED_HOSTS = env.list('ALLOWED_HOST', default=['127.0.0.1'])
+ALLOWED_HOSTS = ['sigma-backend-td7d.onrender.com', '127.0.0.1']
 
 # Application definition
 INSTALLED_APPS = [
@@ -26,7 +26,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'django_filters', #ultimo
+    'rest_framework.authtoken', #ojo!
+    'django_filters', 
 ]
 
 MIDDLEWARE = [
@@ -42,6 +43,15 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'petroconsultores.urls'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
 
 TEMPLATES = [
     {
