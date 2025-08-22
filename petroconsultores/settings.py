@@ -34,7 +34,7 @@ SECRET_KEY = env('SECRET_KEY', default='django-insecure-b7zi)zd((pqkfr4i+kadgn5(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool('DEBUG', default=True)
 
-ALLOWED_HOSTS = ['davinci444.pythonanywhere.com','127.0.0.1']
+ALLOWED_HOSTS = ['sigma-backend-td7d.onrender.com', '127.0.0.1']
 
 
 # Application definition
