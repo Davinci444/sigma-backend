@@ -33,9 +33,16 @@ class IntervencionSerializer(serializers.ModelSerializer):
 
 class OrdenTrabajoSerializer(serializers.ModelSerializer):
     intervenciones = IntervencionSerializer(many=True, read_only=True)
+    # Le decimos que al crear, espere recibir solo el ID (la llave primaria) del vehículo.
+    vehiculo = serializers.PrimaryKeyRelatedField(queryset=Vehiculo.objects.all())
+
     class Meta:
         model = OrdenTrabajo
         fields = [
             'id', 'titulo', 'descripcion', 'kilometraje', 'estado', 
-            'tipo_intervencion', 'fecha_creacion', 'fecha_finalizacion', 'intervenciones'
+            'tipo_intervencion', 'fecha_creacion', 'fecha_finalizacion', 'intervenciones',
+            'vehiculo' # Campo añadido para la creación/escritura
         ]
+        # Definimos campos que no se deben poder escribir directamente al crear,
+        # ya que se gestionan de forma automática.
+        read_only_fields = ['estado', 'fecha_creacion', 'fecha_finalizacion', 'intervenciones']
