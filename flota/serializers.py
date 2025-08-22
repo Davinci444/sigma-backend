@@ -1,7 +1,10 @@
 # Archivo: flota/serializers.py
 
 from rest_framework import serializers
-from .models import Vehiculo, Zona, OrdenTrabajo, Intervencion, Subcategoria, Categoria
+from .models import (
+    Vehiculo, Zona, OrdenTrabajo, Intervencion, 
+    Subcategoria, Categoria, ModoFalla
+)
 
 class ZonaSerializer(serializers.ModelSerializer):
     class Meta:
@@ -17,13 +20,17 @@ class VehiculoSerializer(serializers.ModelSerializer):
 class CategoriaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Categoria
-        fields = ['nombre']
+        fields = ['id', 'nombre']
 
 class SubcategoriaSerializer(serializers.ModelSerializer):
-    categoria = CategoriaSerializer(read_only=True)
     class Meta:
         model = Subcategoria
-        fields = ['nombre', 'categoria']
+        fields = ['id', 'nombre', 'categoria']
+
+class ModoFallaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ModoFalla
+        fields = ['id', 'descripcion', 'subcategoria']
 
 class IntervencionSerializer(serializers.ModelSerializer):
     subcategoria = SubcategoriaSerializer(read_only=True)
@@ -33,16 +40,15 @@ class IntervencionSerializer(serializers.ModelSerializer):
 
 class OrdenTrabajoSerializer(serializers.ModelSerializer):
     intervenciones = IntervencionSerializer(many=True, read_only=True)
-    # Le decimos que al crear, espere recibir solo el ID (la llave primaria) del vehículo.
     vehiculo = serializers.PrimaryKeyRelatedField(queryset=Vehiculo.objects.all())
+    # Hacemos que el serializador muestre los detalles del vehículo al leer
+    vehiculo_details = VehiculoSerializer(source='vehiculo', read_only=True)
 
     class Meta:
         model = OrdenTrabajo
         fields = [
             'id', 'titulo', 'descripcion', 'kilometraje', 'estado', 
-            'tipo_intervencion', 'fecha_creacion', 'fecha_finalizacion', 'intervenciones',
-            'vehiculo' # Campo añadido para la creación/escritura
+            'tipo_intervencion', 'fecha_creacion', 'fecha_finalizacion', 
+            'intervenciones', 'vehiculo', 'vehiculo_details'
         ]
-        # Definimos campos que no se deben poder escribir directamente al crear,
-        # ya que se gestionan de forma automática.
-        read_only_fields = ['estado', 'fecha_creacion', 'fecha_finalizacion', 'intervenciones']
+        read_only_fields = ['estado', 'fecha_creacion', 'fecha_finalizacion', 'intervenciones', 'vehiculo_details']
