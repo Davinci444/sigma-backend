@@ -17,7 +17,7 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOST', default=['127.0.0.1'])
 
 # Application definition
 INSTALLED_APPS = [
-    'corsheaders',  # <-- AÑADIDO
+    'corsheaders', 
     'flota.apps.FlotaConfig',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -26,12 +26,13 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'django_filters', #ultimo
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # <-- AÑADIDO
+    'corsheaders.middleware.CorsMiddleware',  
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
