@@ -71,21 +71,39 @@ exportar_hoja_de_vida_pdf.short_description = "Exportar Hoja de Vida en PDF"
 @admin.register(EstadoMantenimiento)
 class EstadoMantenimientoAdmin(admin.ModelAdmin):
     list_display = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento', 'tareas_pendientes')
-    readonly_fields = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento', 'tareas_pendientes')
+    readonly_fields = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento')
     search_fields = ['vehiculo__placa']
 
+    # --- FUNCIÓN MEJORADA ---
     def tareas_pendientes(self, obj):
+        # Primero, obtenemos el kilometraje más reciente del vehículo desde los tanqueos
         ultimo_tanqueo = Tanqueo.objects.filter(vehiculo=obj.vehiculo).order_by('-fecha').first()
         km_actual = ultimo_tanqueo.kilometraje if ultimo_tanqueo else obj.km_ultimo_mantenimiento
         
-        if km_actual >= obj.km_proximo_mantenimiento:
-            tareas, plan = get_tareas_para_kilometraje(obj.vehiculo.tipo_motor, km_actual, obj.km_activacion)
-            html = f"<b>¡SERVICIO VENCIDO! ({plan})</b><ul>"
-            for tarea in tareas:
-                html += f"<li>{tarea}</li>"
-            html += "</ul>"
-            return format_html(html)
-        return f"Faltan {obj.km_proximo_mantenimiento - km_actual} km"
+        km_faltantes = obj.km_proximo_mantenimiento - km_actual
+        
+        # Determinamos el ciclo de kilometraje del próximo servicio
+        km_recorridos_proximo_ciclo = obj.km_proximo_mantenimiento - obj.km_activacion
+        
+        # Obtenemos la lista de tareas y el nombre del plan para ese próximo ciclo
+        tareas, plan_name = get_tareas_para_kilometraje(
+            obj.vehiculo.tipo_motor, 
+            obj.km_proximo_mantenimiento,
+            obj.km_activacion
+        )
+
+        # Construimos el texto a mostrar en el panel
+        if km_faltantes <= 0:
+            header = f"<b style='color:red;'>¡SERVICIO VENCIDO! ({plan_name})</b>"
+        else:
+            header = f"<b>Próximo en {km_faltantes} km ({plan_name})</b>"
+        
+        html = f"{header}<ul>"
+        for tarea in sorted(tareas):
+            html += f"<li>{tarea}</li>"
+        html += "</ul>"
+        
+        return format_html(html)
     tareas_pendientes.short_description = "Próximo Servicio / Tareas"
 
 
