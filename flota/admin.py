@@ -1,6 +1,12 @@
 # Archivo: flota/admin.py
 from django.contrib import admin
-from .models import *
+from .models import (
+    Zona, Vehiculo, HistorialVehiculo,
+    Categoria, Subcategoria, ModoFalla,
+    OrdenTrabajo, Intervencion, Tanqueo,
+    EstadoMantenimiento,
+    OrdenPreventiva, OrdenCorrectiva, SeguimientoOrdenCorrectiva
+)
 from .protocolos import PROTOCOLOS_PREVENTIVOS, get_tareas_para_kilometraje
 from django.http import HttpResponse
 from reportlab.pdfgen import canvas
@@ -71,28 +77,24 @@ exportar_hoja_de_vida_pdf.short_description = "Exportar Hoja de Vida en PDF"
 @admin.register(EstadoMantenimiento)
 class EstadoMantenimientoAdmin(admin.ModelAdmin):
     list_display = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento', 'tareas_pendientes')
-    readonly_fields = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento')
+    readonly_fields = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento', 'tareas_pendientes')
     search_fields = ['vehiculo__placa']
 
-    # --- FUNCIÓN MEJORADA ---
     def tareas_pendientes(self, obj):
-        # Primero, obtenemos el kilometraje más reciente del vehículo desde los tanqueos
         ultimo_tanqueo = Tanqueo.objects.filter(vehiculo=obj.vehiculo).order_by('-fecha').first()
         km_actual = ultimo_tanqueo.kilometraje if ultimo_tanqueo else obj.km_ultimo_mantenimiento
         
+        if obj.km_proximo_mantenimiento == 0:
+            return "Plan no activado"
+
         km_faltantes = obj.km_proximo_mantenimiento - km_actual
         
-        # Determinamos el ciclo de kilometraje del próximo servicio
-        km_recorridos_proximo_ciclo = obj.km_proximo_mantenimiento - obj.km_activacion
-        
-        # Obtenemos la lista de tareas y el nombre del plan para ese próximo ciclo
         tareas, plan_name = get_tareas_para_kilometraje(
             obj.vehiculo.tipo_motor, 
             obj.km_proximo_mantenimiento,
             obj.km_activacion
         )
 
-        # Construimos el texto a mostrar en el panel
         if km_faltantes <= 0:
             header = f"<b style='color:red;'>¡SERVICIO VENCIDO! ({plan_name})</b>"
         else:
@@ -105,7 +107,6 @@ class EstadoMantenimientoAdmin(admin.ModelAdmin):
         
         return format_html(html)
     tareas_pendientes.short_description = "Próximo Servicio / Tareas"
-
 
 @admin.register(Zona)
 class ZonaAdmin(admin.ModelAdmin):
@@ -156,7 +157,24 @@ class IntervencionCorrectivaInline(admin.TabularInline):
     model = Intervencion
     extra = 1
     autocomplete_fields = ['subcategoria', 'modo_falla']
+    fields = ('categoria', 'subcategoria', 'modo_falla', 'costo_repuestos', 'costo_mano_obra', 'notas')
+    readonly_fields = ('categoria',)
     verbose_name_plural = "Intervenciones Correctivas (Fallas)"
+
+class SeguimientoOrdenInline(admin.TabularInline):
+    model = SeguimientoOrdenCorrectiva
+    extra = 1
+    fields = ('fecha_actualizacion', 'comentario', 'fecha_entrega_estimada', 'usuario')
+    readonly_fields = ('fecha_actualizacion', 'usuario')
+    can_delete = False
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        if obj and self.model.objects.filter(orden_trabajo=obj).exists():
+            formset.extra = 1
+        return formset
+    def has_change_permission(self, request, obj=None):
+        return True
 
 class OrdenTrabajoAdminBase(admin.ModelAdmin):
     list_display = ('id', 'titulo', 'vehiculo', 'kilometraje', 'estado')
@@ -214,9 +232,20 @@ class OrdenPreventivaAdmin(OrdenTrabajoAdminBase):
 @admin.register(OrdenCorrectiva)
 class OrdenCorrectivaAdmin(OrdenTrabajoAdminBase):
     fields = ('vehiculo', 'titulo', 'descripcion', 'kilometraje', 'asignado_a', 'estado')
-    inlines = [IntervencionCorrectivaInline]
+    inlines = [IntervencionCorrectivaInline, SeguimientoOrdenInline]
     autocomplete_fields = ['vehiculo', 'asignado_a']
     
+    def save_formset(self, request, form, formset, change):
+        if formset.model == SeguimientoOrdenCorrectiva:
+            instances = formset.save(commit=False)
+            for instance in instances:
+                if not instance.pk:
+                    instance.usuario = request.user
+                instance.save()
+            formset.save_m2m()
+        else:
+            super().save_formset(request, form, formset, change)
+
     def get_queryset(self, request):
         return super().get_queryset(request).filter(tipo_intervencion='CORRECTIVO')
 
