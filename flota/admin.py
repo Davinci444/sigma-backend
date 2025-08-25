@@ -152,11 +152,9 @@ class OrdenTrabajoAdminBase(admin.ModelAdmin):
         
         is_newly_completed = obj.estado == 'COMPLETADA' and 'estado' in form.changed_data
         
-        # Solo ejecutamos la lógica si la orden es PREVENTIVA y se acaba de COMPLETAR
         if obj.tipo_intervencion == 'PREVENTIVO' and is_newly_completed and obj.plan_aplicado:
             plan = obj.plan_aplicado
             
-            # Actualizamos o creamos el estado de mantenimiento. Esta es la lógica para CUALQUIER preventivo.
             estado_mtto, created = EstadoMantenimiento.objects.update_or_create(
                 vehiculo=obj.vehiculo,
                 defaults={
@@ -166,7 +164,6 @@ class OrdenTrabajoAdminBase(admin.ModelAdmin):
                 }
             )
 
-            # Si 'created' es True, significa que este fue el primer mantenimiento, por lo tanto, el plan se activó.
             if created:
                 descripcion_historial = f"PLAN DE MANTENIMIENTO ACTIVADO con '{plan.nombre}'. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km."
             else:
@@ -188,10 +185,13 @@ class OrdenTrabajoAdminBase(admin.ModelAdmin):
 @admin.register(OrdenPreventiva)
 class OrdenPreventivaAdmin(OrdenTrabajoAdminBase):
     fields = ('vehiculo', 'titulo', 'descripcion', 'kilometraje', 'asignado_a', 'estado', 'plan_aplicado')
+    # --- LÍNEA CORREGIDA ---
     autocomplete_fields = ['vehiculo', 'asignado_a', 'plan_aplicado']
 
     def get_queryset(self, request):
-        return OrdenTrabajo.objects.filter(tipo_intervencion='PREVENTIVO')
+        # El queryset de la clase base ya está bien, solo necesitamos filtrar por tipo
+        base_qs = super().get_queryset(request)
+        return base_qs.filter(tipo_intervencion='PREVENTIVO')
     
     def save_model(self, request, obj, form, change):
         obj.tipo_intervencion = 'PREVENTIVO'
@@ -201,9 +201,11 @@ class OrdenPreventivaAdmin(OrdenTrabajoAdminBase):
 class OrdenCorrectivaAdmin(OrdenTrabajoAdminBase):
     fields = ('vehiculo', 'titulo', 'descripcion', 'kilometraje', 'asignado_a', 'estado')
     inlines = [IntervencionCorrectivaInline]
+    autocomplete_fields = ['vehiculo', 'asignado_a'] # Añadido para consistencia
 
     def get_queryset(self, request):
-        return OrdenTrabajo.objects.filter(tipo_intervencion='CORRECTIVO')
+        base_qs = super().get_queryset(request)
+        return base_qs.filter(tipo_intervencion='CORRECTIVO')
 
     def save_model(self, request, obj, form, change):
         obj.tipo_intervencion = 'CORRECTIVO'
