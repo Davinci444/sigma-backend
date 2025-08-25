@@ -7,7 +7,6 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from django.utils.html import format_html
-from import_export.admin import ImportExportModelAdmin
 
 # --- FUNCIÓN PARA EXPORTAR LA HOJA DE VIDA EN PDF ---
 def exportar_hoja_de_vida_pdf(modeladmin, request, queryset):
@@ -103,6 +102,7 @@ class EstadoMantenimientoAdmin(admin.ModelAdmin):
         return format_html(html)
     tareas_pendientes.short_description = "Próximo Servicio / Tareas"
 
+
 @admin.register(Zona)
 class ZonaAdmin(admin.ModelAdmin):
     list_display = ('id', 'nombre')
@@ -193,7 +193,7 @@ class OrdenTrabajoAdminBase(admin.ModelAdmin):
         
         if obj.tipo_intervencion == 'PREVENTIVO' and is_newly_completed:
             # Lógica de activación y actualización de planes preventivos
-            pass # Aquí va la lógica completa que ya teníamos
+            pass
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related('vehiculo')
@@ -255,7 +255,7 @@ class IntervencionAdmin(admin.ModelAdmin):
     autocomplete_fields = ['subcategoria', 'modo_falla']
 
 @admin.register(Tanqueo)
-class TanqueoAdmin(ImportExportModelAdmin):
+class TanqueoAdmin(admin.ModelAdmin):
     list_display = ('fecha', 'vehiculo', 'kilometraje', 'galones', 'costo_total')
     list_filter = ('vehiculo__zona', 'vehiculo')
     search_fields = ('vehiculo__placa',)
