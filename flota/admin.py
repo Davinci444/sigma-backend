@@ -80,7 +80,7 @@ class TareaPlanInline(admin.TabularInline):
 class PlanMantenimientoAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'tipo_motor', 'intervalo_km')
     list_filter = ('tipo_motor',)
-    search_fields = ['nombre'] # <-- CORRECCIÓN 1: Campo de búsqueda añadido
+    search_fields = ['nombre']
     inlines = [TareaPlanInline]
 
 @admin.register(EstadoMantenimiento)
@@ -152,45 +152,31 @@ class OrdenTrabajoAdminBase(admin.ModelAdmin):
         
         is_newly_completed = obj.estado == 'COMPLETADA' and 'estado' in form.changed_data
         
-        if obj.tipo_intervencion == 'PREVENTIVO' and is_newly_completed:
-            if not EstadoMantenimiento.objects.filter(vehiculo=obj.vehiculo).exists():
-                es_cambio_de_aceite = any(
-                    'aceite' in intervencion.subcategoria.nombre.lower()
-                    for intervencion in obj.intervenciones.all()
-                ) if hasattr(obj, 'intervenciones') and obj.intervenciones.exists() else False
-                if es_cambio_de_aceite or obj.plan_aplicado:
-                    plan_a_usar = obj.plan_aplicado if obj.plan_aplicado else PlanMantenimiento.objects.filter(
-                        tipo_motor=obj.vehiculo.tipo_motor
-                    ).order_by('intervalo_km').first()
-                    
-                    if plan_a_usar:
-                        estado_mtto = EstadoMantenimiento.objects.create(
-                            vehiculo=obj.vehiculo,
-                            ultimo_plan_realizado=plan_a_usar,
-                            km_ultimo_mantenimiento=obj.kilometraje,
-                            km_proximo_mantenimiento=obj.kilometraje + plan_a_usar.intervalo_km
-                        )
-                        HistorialVehiculo.objects.create(
-                            vehiculo=obj.vehiculo,
-                            descripcion=f"PLAN DE MANTENIMIENTO ACTIVADO con '{plan_a_usar.nombre}'. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km.",
-                            usuario=request.user
-                        )
+        # Solo ejecutamos la lógica si la orden es PREVENTIVA y se acaba de COMPLETAR
+        if obj.tipo_intervencion == 'PREVENTIVO' and is_newly_completed and obj.plan_aplicado:
+            plan = obj.plan_aplicado
+            
+            # Actualizamos o creamos el estado de mantenimiento. Esta es la lógica para CUALQUIER preventivo.
+            estado_mtto, created = EstadoMantenimiento.objects.update_or_create(
+                vehiculo=obj.vehiculo,
+                defaults={
+                    'ultimo_plan_realizado': plan,
+                    'km_ultimo_mantenimiento': obj.kilometraje,
+                    'km_proximo_mantenimiento': obj.kilometraje + plan.intervalo_km
+                }
+            )
+
+            # Si 'created' es True, significa que este fue el primer mantenimiento, por lo tanto, el plan se activó.
+            if created:
+                descripcion_historial = f"PLAN DE MANTENIMIENTO ACTIVADO con '{plan.nombre}'. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km."
             else:
-                plan_aplicado = obj.plan_aplicado
-                if plan_aplicado:
-                    estado_mtto, created = EstadoMantenimiento.objects.update_or_create(
-                        vehiculo=obj.vehiculo,
-                        defaults={
-                            'ultimo_plan_realizado': plan_aplicado,
-                            'km_ultimo_mantenimiento': obj.kilometraje,
-                            'km_proximo_mantenimiento': obj.kilometraje + plan_aplicado.intervalo_km
-                        }
-                    )
-                    HistorialVehiculo.objects.create(
-                        vehiculo=obj.vehiculo,
-                        descripcion=f"Mantenimiento preventivo '{plan_aplicado.nombre}' completado. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km.",
-                        usuario=request.user
-                    )
+                descripcion_historial = f"Mantenimiento preventivo '{plan.nombre}' completado. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km."
+            
+            HistorialVehiculo.objects.create(
+                vehiculo=obj.vehiculo,
+                descripcion=descripcion_historial,
+                usuario=request.user
+            )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related('vehiculo')
@@ -243,7 +229,6 @@ class HistorialVehiculoAdmin(admin.ModelAdmin):
 @admin.register(Intervencion)
 class IntervencionAdmin(admin.ModelAdmin):
     list_display = ('id', 'orden_trabajo', 'subcategoria', 'costo_repuestos', 'costo_mano_obra')
-    # <-- CORRECCIÓN 2: Eliminamos la referencia a 'orden_trabajo' que ya no está registrada
     autocomplete_fields = ['subcategoria', 'modo_falla']
 
 @admin.register(Tanqueo)
