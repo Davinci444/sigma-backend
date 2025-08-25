@@ -1,16 +1,12 @@
 # Archivo: flota/admin.py
 from django.contrib import admin
-from .models import (
-    Zona, Vehiculo, HistorialVehiculo,
-    Categoria, Subcategoria, ModoFalla,
-    OrdenTrabajo, Intervencion, Tanqueo,
-    PlanMantenimiento, TareaPlan, EstadoMantenimiento,
-    OrdenPreventiva, OrdenCorrectiva
-)
+from .models import *
+from .protocolos import PROTOCOLOS_PREVENTIVOS, get_tareas_para_kilometraje
 from django.http import HttpResponse
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
+from django.utils.html import format_html
 
 # --- FUNCIÓN PARA EXPORTAR LA HOJA DE VIDA EN PDF ---
 def exportar_hoja_de_vida_pdf(modeladmin, request, queryset):
@@ -72,22 +68,26 @@ exportar_hoja_de_vida_pdf.short_description = "Exportar Hoja de Vida en PDF"
 
 # --- CONFIGURACIÓN DEL PANEL DE ADMINISTRACIÓN ---
 
-class TareaPlanInline(admin.TabularInline):
-    model = TareaPlan
-    extra = 1
-
-@admin.register(PlanMantenimiento)
-class PlanMantenimientoAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'tipo_motor', 'intervalo_km')
-    list_filter = ('tipo_motor',)
-    search_fields = ['nombre']
-    inlines = [TareaPlanInline]
-
 @admin.register(EstadoMantenimiento)
 class EstadoMantenimientoAdmin(admin.ModelAdmin):
-    list_display = ('vehiculo', 'ultimo_plan_realizado', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento')
-    readonly_fields = ('vehiculo', 'ultimo_plan_realizado', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento')
+    list_display = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento', 'tareas_pendientes')
+    readonly_fields = ('vehiculo', 'km_activacion', 'km_ultimo_mantenimiento', 'km_proximo_mantenimiento', 'tareas_pendientes')
     search_fields = ['vehiculo__placa']
+
+    def tareas_pendientes(self, obj):
+        ultimo_tanqueo = Tanqueo.objects.filter(vehiculo=obj.vehiculo).order_by('-fecha').first()
+        km_actual = ultimo_tanqueo.kilometraje if ultimo_tanqueo else obj.km_ultimo_mantenimiento
+        
+        if km_actual >= obj.km_proximo_mantenimiento:
+            tareas, plan = get_tareas_para_kilometraje(obj.vehiculo.tipo_motor, km_actual, obj.km_activacion)
+            html = f"<b>¡SERVICIO VENCIDO! ({plan})</b><ul>"
+            for tarea in tareas:
+                html += f"<li>{tarea}</li>"
+            html += "</ul>"
+            return format_html(html)
+        return f"Faltan {obj.km_proximo_mantenimiento - km_actual} km"
+    tareas_pendientes.short_description = "Próximo Servicio / Tareas"
+
 
 @admin.register(Zona)
 class ZonaAdmin(admin.ModelAdmin):
@@ -120,8 +120,7 @@ class VehiculoAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
+        if request.user.is_superuser: return qs
         user_groups = request.user.groups.values_list('name', flat=True)
         return qs.filter(zona__nombre__in=list(user_groups))
 
@@ -149,49 +148,46 @@ class OrdenTrabajoAdminBase(admin.ModelAdmin):
     
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
-        
         is_newly_completed = obj.estado == 'COMPLETADA' and 'estado' in form.changed_data
         
-        if obj.tipo_intervencion == 'PREVENTIVO' and is_newly_completed and obj.plan_aplicado:
-            plan = obj.plan_aplicado
-            
-            estado_mtto, created = EstadoMantenimiento.objects.update_or_create(
-                vehiculo=obj.vehiculo,
-                defaults={
-                    'ultimo_plan_realizado': plan,
-                    'km_ultimo_mantenimiento': obj.kilometraje,
-                    'km_proximo_mantenimiento': obj.kilometraje + plan.intervalo_km
-                }
-            )
+        if obj.tipo_intervencion == 'PREVENTIVO' and is_newly_completed:
+            vehiculo = obj.vehiculo
+            protocolo = PROTOCOLOS_PREVENTIVOS.get(vehiculo.tipo_motor, [])
+            if not protocolo:
+                return
+
+            estado_mtto, created = EstadoMantenimiento.objects.get_or_create(vehiculo=vehiculo)
+            intervalo_base = min(plan['kilometraje'] for plan in protocolo)
 
             if created:
-                descripcion_historial = f"PLAN DE MANTENIMIENTO ACTIVADO con '{plan.nombre}'. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km."
+                estado_mtto.km_activacion = obj.kilometraje
+                descripcion_historial = f"PLAN DE MANTENIMIENTO ACTIVADO. Próximo servicio en {intervalo_base} km."
             else:
-                descripcion_historial = f"Mantenimiento preventivo '{plan.nombre}' completado. Próximo servicio a los {estado_mtto.km_proximo_mantenimiento} km."
+                descripcion_historial = f"Mantenimiento preventivo completado."
+
+            estado_mtto.km_ultimo_mantenimiento = obj.kilometraje
+            estado_mtto.km_proximo_mantenimiento = obj.kilometraje + intervalo_base
+            estado_mtto.save()
             
             HistorialVehiculo.objects.create(
-                vehiculo=obj.vehiculo,
-                descripcion=descripcion_historial,
+                vehiculo=vehiculo,
+                descripcion=f"{descripcion_historial} Próximo servicio programado a los {estado_mtto.km_proximo_mantenimiento} km.",
                 usuario=request.user
             )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related('vehiculo')
-        if request.user.is_superuser:
-            return qs
+        if request.user.is_superuser: return qs
         user_groups = request.user.groups.values_list('name', flat=True)
         return qs.filter(vehiculo__zona__nombre__in=list(user_groups))
 
 @admin.register(OrdenPreventiva)
 class OrdenPreventivaAdmin(OrdenTrabajoAdminBase):
-    fields = ('vehiculo', 'titulo', 'descripcion', 'kilometraje', 'asignado_a', 'estado', 'plan_aplicado')
-    # --- LÍNEA CORREGIDA ---
-    autocomplete_fields = ['vehiculo', 'asignado_a', 'plan_aplicado']
-
+    fields = ('vehiculo', 'titulo', 'descripcion', 'kilometraje', 'asignado_a', 'estado')
+    autocomplete_fields = ['vehiculo', 'asignado_a']
+    
     def get_queryset(self, request):
-        # El queryset de la clase base ya está bien, solo necesitamos filtrar por tipo
-        base_qs = super().get_queryset(request)
-        return base_qs.filter(tipo_intervencion='PREVENTIVO')
+        return super().get_queryset(request).filter(tipo_intervencion='PREVENTIVO')
     
     def save_model(self, request, obj, form, change):
         obj.tipo_intervencion = 'PREVENTIVO'
@@ -201,11 +197,10 @@ class OrdenPreventivaAdmin(OrdenTrabajoAdminBase):
 class OrdenCorrectivaAdmin(OrdenTrabajoAdminBase):
     fields = ('vehiculo', 'titulo', 'descripcion', 'kilometraje', 'asignado_a', 'estado')
     inlines = [IntervencionCorrectivaInline]
-    autocomplete_fields = ['vehiculo', 'asignado_a'] # Añadido para consistencia
-
+    autocomplete_fields = ['vehiculo', 'asignado_a']
+    
     def get_queryset(self, request):
-        base_qs = super().get_queryset(request)
-        return base_qs.filter(tipo_intervencion='CORRECTIVO')
+        return super().get_queryset(request).filter(tipo_intervencion='CORRECTIVO')
 
     def save_model(self, request, obj, form, change):
         obj.tipo_intervencion = 'CORRECTIVO'
@@ -215,18 +210,13 @@ class OrdenCorrectivaAdmin(OrdenTrabajoAdminBase):
 class HistorialVehiculoAdmin(admin.ModelAdmin):
     list_display = ('vehiculo', 'descripcion', 'usuario', 'fecha')
     list_filter = ('vehiculo__zona', 'vehiculo')
-
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
+        if request.user.is_superuser: return qs
         user_groups = request.user.groups.values_list('name', flat=True)
         return qs.filter(vehiculo__zona__nombre__in=list(user_groups))
-
-    def has_change_permission(self, request, obj=None):
-        return False
-    def has_add_permission(self, request):
-        return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_add_permission(self, request): return False
         
 @admin.register(Intervencion)
 class IntervencionAdmin(admin.ModelAdmin):
